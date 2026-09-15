@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+.DS_Store
+evals/**/.build/
+evals/**/.artifacts/
+
+# Local personal preferences and development history are not published.
+/USER_PROFILE.md
+/PLAN.md
+/TRACKER.md
+/STATE.md
+/KONZEPT.md
+/docs/BESTANDSAUFNAHME.md
+/docs/VERIFIKATION.md
+/docs/VOLLSTAENDIGKEIT.md
+/evals/pilot-macos/
+/evals/forward-expo/
+/evals/forward-personalization/
+
+# Runtime output and local configuration.
+.env
+.env.*
+!.env.example
+*.log
