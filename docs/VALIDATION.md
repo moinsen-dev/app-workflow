@@ -10,7 +10,7 @@ Im Repository mit Python 3.10 oder neuer ausführen:
 python3 evals/check_workflow.py
 ```
 
-Die 29 gezielten Fälle prüfen unter anderem:
+Die 35 gezielten Fälle prüfen unter anderem:
 
 - Erzeugung aller vier Profile; ein neuer Entwurf behauptet keine fertige Planung.
 - Erhaltung vorhandener Dateien, lesende Statusaufrufe und Erkennung veralteter STATE-Dateien.
@@ -18,6 +18,7 @@ Die 29 gezielten Fälle prüfen unter anderem:
 - Fehlende Belege, geänderte Kriterien/Quelldateien sowie unpassende Build- oder Fixture-Nachweise.
 - Persönliche Vorgaben mit Herkunft, Konfliktauflösung und unveränderte Nutzerprofile.
 - Kanalabhängige Release-Anforderungen, früh erforderliche Geräteaufgaben, Identität, Build-Zuordnung und den tatsächlich erklärten Auslieferungszustand.
+- Tracker-Befehle: ein Beleg bindet den Fingerprint des geprüften Stands, der übrige Dateitext bleibt unverändert, ungültige Eingaben, unbelegte Fertigmeldungen und unpassende Release-Zeilen werden ohne Schreibzugriff abgewiesen; als Selbstprüfung gilt nur das maßgebliche letzte Urteil je Scope.
 - Unveränderte Fingerprint-Berechnung für einen älteren Vertrag. Das fest gespeicherte [Fixture 1.0](../evals/fixtures/legacy-v1/AGENTS.md) enthält ausschließlich synthetische Daten und behauptet keinen App-Durchlauf. Seine Fingerprints bei einem Fehler nicht automatisch neu erzeugen.
 
 Die positiven Nachweisdaten in dieser Testsuite sind synthetische Eingaben. Die Tests prüfen, welche Aussagen der Controller akzeptiert oder zurückweist; sie beweisen nicht den Wahrheitsgehalt eines geschriebenen App-Berichts.

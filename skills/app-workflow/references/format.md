@@ -77,7 +77,7 @@ Ein Task mit mehreren Verify-Zielen benötigt Nachweise für alle. `inspection` 
 | Mode | normal, fixture oder code |
 | Date | Tatsächlicher Zeitpunkt in ISO-8601 mit Zeitzone, etwa 2026-09-15T15:00:00+02:00 |
 | Build | Identifizierbarer Code-/Buildstand und bei Bedarf Laufzeitkonfiguration |
-| Fingerprint | Ausgabe von fingerprint --scope T001 nach der Prüfung desselben Stands |
+| Fingerprint | Vom Befehl `evidence` beim Eintragen berechnet; bei Handeintrag die Ausgabe von fingerprint --scope T001 nach der Prüfung desselben Stands |
 | Report | Relative existierende, nicht leere Datei mit Beobachtung; kein Pfad außerhalb des Projekts |
 | Result | PASS oder FAIL |
 
@@ -93,7 +93,7 @@ Nach einer Änderung alte Belege als Historie erhalten, den Task wieder öffnen 
 | Scope | PLAN oder eine Use-Case-ID |
 | Kind | independent oder self; tatsächliche Prüfart angeben |
 | Result | PASS, REWORK oder BLOCKED |
-| Fingerprint | Ausgabe von fingerprint --scope PLAN beziehungsweise UC01 für den tatsächlich geprüften Stand |
+| Fingerprint | Vom Befehl `review` berechnet; bei Handeintrag die Ausgabe von fingerprint --scope PLAN beziehungsweise UC01 für den tatsächlich geprüften Stand |
 | Report | Relative Berichtsdatei mit konkreten Befunden und Belegen |
 
 Die letzte Review-Zeile pro Scope ist maßgeblich. Für einen Abschluss muss diese PASS sagen und aktuell sein. Plan-Fingerprints binden die Planung, Use-Case-Fingerprints außerdem zugeordnete Quellen und aktuelle Belege. Die Quelldateiliste allein verändert den Plan-Fingerprint nicht, wohl aber Task- und Use-Case-Fingerprints.
@@ -118,6 +118,19 @@ Zum Abschluss müssen die referenzierten Belege aktiv, aktuell und normal bezieh
 Im Bericht müssen Beleg, Build, Zielgruppe und tatsächlich erreichter Status zusammenpassen. Dieses inhaltliche Urteil bleibt Aufgabe des ausführenden Agenten und Kritikers; eine ausgefüllte Tabelle beweist keinen externen Store-Zustand. Die nach Goal gestaffelten Anforderungen stehen in release.md: READY benötigt keinen Store-Upload und keine öffentliche URL; SUBMITTED/LIVE brauchen zusätzliche tatsächliche Beobachtungen.
 
 Release-Zeilen fließen in die zugehörigen Use-Case-Fingerprints ein. Ein geänderter Release-Verweis oder Status kann daher nicht mit einem alten Kritikerurteil abgeschlossen werden.
+
+### Tracker-Befehle
+
+Die Tabellen bleiben von Hand lesbar und änderbar. Die Befehle ersparen die fehleranfällige Tabellenpflege und binden Fingerprints an den Stand, der beim Aufruf vorliegt:
+
+```sh
+python3 "$SKILL_DIR/scripts/workflow.py" evidence /projekt --task T003 --checks macos --mode normal --build 4f2a9c1 --report docs/t003-evidence.md --result PASS
+python3 "$SKILL_DIR/scripts/workflow.py" task /projekt T003 --status ERLEDIGT --evidence E004
+python3 "$SKILL_DIR/scripts/workflow.py" review /projekt --scope UC02 --kind independent --result PASS --report docs/uc02-review.md
+python3 "$SKILL_DIR/scripts/workflow.py" release /projekt --delivery D001 --stage LOCAL --build 4f2a9c1 --locator .artifacts/App.app --evidence E004
+```
+
+`evidence`, `review` und `release` fügen eine neue Zeile mit der nächsten freien ID an. `task` legt die Zeile einer geplanten Aufgabe an oder ändert Status, Belege und Begründung; ohne Angabe bleibt der bisherige Wert. `Method` folgt aus den geprüften Zielen, `Date` ist der Zeitpunkt des Eintrags. Jeder Befehl prüft den entstehenden Tracker und verweigert eine Zeile, der der Prüfer einen Fehler zuordnet: ERLEDIGT ohne aktuellen passenden Beleg, ein Release-Beleg aus einer fremden Aufgabe, ein Endzustand, der nicht zum Kanal passt. Der übrige Text der Datei bleibt unverändert. Danach `state` ausführen. Ein Eintrag belegt weiterhin nur, was sein Bericht tatsächlich beschreibt.
 
 ## STATE.md
 

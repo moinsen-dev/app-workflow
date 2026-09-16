@@ -52,6 +52,7 @@ HEADERS = {
     "Delivery": "ID Platform Channel Goal AppID Owner Tasks",
     "Releases": "ID Delivery Stage Build Locator Evidence",
 }
+FILES = ("AGENTS.md", "PLAN.md", "TRACKER.md", "STATE.md")
 
 
 class Invalid(ValueError):
@@ -81,9 +82,10 @@ def read(path):
         raise Invalid(f"READ: {path.name}: {exc}") from exc
 
 
-def sections(text):
+def indexed_sections(text):
+    """(line index, line) per section; fenced blocks belong to no section."""
     result, current, fenced = {}, None, False
-    for line in text.splitlines():
+    for index, line in enumerate(text.split("\n")):
         if line.startswith("```") or line.startswith("~~~"):
             fenced = not fenced
         if fenced:
@@ -94,8 +96,23 @@ def sections(text):
                 raise Invalid(f"FORMAT: doppelte Section {current}")
             result[current] = []
         elif current:
-            result[current].append(line)
+            result[current].append((index, line))
     return result
+
+
+def sections(text):
+    return {name: [line for _, line in pairs] for name, pairs in indexed_sections(text).items()}
+
+
+def table_rows(text, name):
+    """Line indices of the table rows in one section, header and separator first."""
+    pairs = indexed_sections(text).get(name)
+    if pairs is None:
+        raise Invalid(f"FORMAT: Section {name} fehlt")
+    rows = [index for index, line in pairs if line.strip().startswith("|")]
+    if len(rows) < 2:
+        raise Invalid(f"FORMAT: Tabelle {name} fehlt")
+    return rows
 
 
 def cells(line):
@@ -228,12 +245,17 @@ def catalogue(profile, modules=(), deliveries=(), version=VERSION):
 
 
 def load(root):
-    data = {"root": root}
-    for filename in ("AGENTS.md", "PLAN.md", "TRACKER.md", "STATE.md"):
+    texts = {}
+    for filename in FILES:
         path = local_file(root, filename)
         if not path.is_file():
             raise Invalid(f"MISSING_FILE: {filename}")
-        data[filename] = read(path)
+        texts[filename] = read(path)
+    return parse(root, texts)
+
+
+def parse(root, texts):
+    data = {"root": root, **texts}
     plan = sections(data["PLAN.md"])
     tracker = sections(data["TRACKER.md"])
     data["project"] = metadata(plan, "Project")
@@ -579,6 +601,7 @@ def validate(data, ready=False, complete=False, phase=None, check_state=True, re
         path = local_file(data["root"], row["Report"])
         if not path.is_file() or not path.stat().st_size:
             error("MISSING_REPORT", f"{eid}: {row['Report']}")
+    decisive = {row["Scope"]: rid for rid, row in data["Reviews"].items()}
     for rid, row in data["Reviews"].items():
         if not re.fullmatch(r"RV\d+", rid) or row["Scope"] not in {"PLAN", *data["UseCases"]}:
             error("REVIEW_SCOPE", f"{rid}: Scope muss PLAN oder ein UseCase sein")
@@ -589,7 +612,7 @@ def validate(data, ready=False, complete=False, phase=None, check_state=True, re
         path = local_file(data["root"], row["Report"])
         if not path.is_file() or not path.stat().st_size:
             error("MISSING_REPORT", f"{rid}: {row['Report']}")
-        if row["Kind"] == "self":
+        if row["Kind"] == "self" and decisive[row["Scope"]] == rid:
             warnings.append(f"SELF_REVIEW: {rid}: keine unabhängige Abnahme")
     if errors:
         return errors, warnings
@@ -661,10 +684,12 @@ def validate(data, ready=False, complete=False, phase=None, check_state=True, re
     return errors, warnings
 
 
+def table_line(values):
+    return "| " + " | ".join(str(x).replace("|", r"\|").replace("\n", " ") for x in values) + " |"
+
+
 def render_table(headers, rows):
-    def line(values):
-        return "| " + " | ".join(str(x).replace("|", r"\|").replace("\n", " ") for x in values) + " |"
-    return "\n".join([line(headers), line(["---"] * len(headers)), *[line([row.get(h, "-") for h in headers]) for row in rows]])
+    return "\n".join([table_line(headers), table_line(["---"] * len(headers)), *[table_line([row.get(h, "-") for h in headers]) for row in rows]])
 
 
 def template(name, values):
@@ -684,6 +709,64 @@ def state_text(data, task_id, next_step, complete=False):
         "NEXT": next_step, "UPDATED": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "PLAN_SHA": sha(data["PLAN.md"].encode()), "TRACKER_SHA": sha(data["TRACKER.md"].encode()),
     })
+
+
+def write_document(data, name, content):
+    """Replace exactly one project document atomically; refuse if a source document changed since loading."""
+    root = data["root"]
+    if any(read(root / filename) != data[filename] for filename in ("PLAN.md", "TRACKER.md", "STATE.md")):
+        raise Invalid("CONCURRENT_CHANGE: Stand erneut lesen")
+    path = root / name
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=".workflow-", delete=False) as handle:
+        temporary = Path(handle.name)
+        handle.write(content)
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def next_id(rows, prefix):
+    numbers = [int(key[len(prefix):]) for key in rows if re.fullmatch(prefix + r"\d+", key)]
+    return f"{prefix}{max(numbers, default=0) + 1:03d}"
+
+
+def report_file(root, value):
+    path = local_file(root, value)
+    if not path.is_file() or not path.stat().st_size:
+        raise Invalid(f"MISSING_REPORT: {value}")
+    return value
+
+
+def refs(value):
+    return ",".join(split(value)) or "-"
+
+
+def tracker_text(data, section, headers, row, replace=False):
+    """TRACKER.md with one row appended to or replaced in a table; every other line stays as it is."""
+    text = data["TRACKER.md"]
+    lines = text.split("\n")
+    rows = table_rows(text, section)
+    line = table_line([row.get(h, "-") for h in headers.split()])
+    if replace:
+        matches = [index for index in rows[2:] if cells(lines[index])[0] == row["ID"]]
+        if len(matches) != 1:
+            raise Invalid(f"TRACKER: Zeile {row['ID']} in {section} nicht eindeutig")
+        lines[matches[0]] = line
+    else:
+        lines.insert(rows[-1] + 1, line)
+    return "\n".join(lines)
+
+
+def update_tracker(data, section, headers, row, replace=False):
+    """Write one tracker row unless the validator attributes an error to that row."""
+    text = tracker_text(data, section, headers, row, replace)
+    candidate = parse(data["root"], {**{name: data[name] for name in FILES}, "TRACKER.md": text})
+    mention = re.compile(r"(?<![A-Za-z0-9])" + re.escape(row["ID"]) + r"(?!\d)")
+    errors = [item for item in validate(candidate, check_state=False)[0] if mention.search(item)]
+    if errors:
+        raise Invalid("\n".join(errors))
+    write_document(data, "TRACKER.md", text)
 
 
 def initialize(args):
@@ -765,6 +848,32 @@ def main(argv=None):
             p.add_argument("--task")
             p.add_argument("--next", default="")
             p.add_argument("--complete", action="store_true")
+    writers = {name: sub.add_parser(name, help=text) for name, text in (
+        ("evidence", "Beleg für den gerade geprüften Stand in TRACKER.md eintragen"),
+        ("review", "Kritikerurteil für PLAN oder einen Use Case eintragen"),
+        ("release", "beobachteten Auslieferungszustand eintragen"),
+        ("task", "Aufgabenzeile in TRACKER.md anlegen oder ändern"))}
+    for p in writers.values():
+        p.add_argument("project", type=Path)
+    writers["evidence"].add_argument("--task", required=True)
+    writers["evidence"].add_argument("--checks", required=True, help="tatsächlich geprüfte Ziele, etwa ios-simulator,android oder unit")
+    writers["evidence"].add_argument("--mode", choices=["normal", "fixture", "code"], required=True)
+    writers["evidence"].add_argument("--build", required=True, help="identifizierbarer Code-/Buildstand")
+    writers["evidence"].add_argument("--report", required=True, help="relative, vorhandene Berichtsdatei")
+    writers["evidence"].add_argument("--result", choices=["PASS", "FAIL"], required=True)
+    writers["review"].add_argument("--scope", required=True, help="PLAN oder Use-Case-ID")
+    writers["review"].add_argument("--kind", choices=["independent", "self"], required=True)
+    writers["review"].add_argument("--result", choices=["PASS", "REWORK", "BLOCKED"], required=True)
+    writers["review"].add_argument("--report", required=True)
+    writers["release"].add_argument("--delivery", required=True)
+    writers["release"].add_argument("--stage", choices=sorted(RELEASE_STAGES, key=RELEASE_STAGES.get), required=True)
+    writers["release"].add_argument("--build", required=True)
+    writers["release"].add_argument("--locator", required=True)
+    writers["release"].add_argument("--evidence", default="", help="aktuelle PASS-Belege, kommagetrennt")
+    writers["task"].add_argument("task")
+    writers["task"].add_argument("--status", choices=sorted(STATUSES))
+    writers["task"].add_argument("--evidence", help="maßgebliche Beleg-IDs, kommagetrennt; - für keine")
+    writers["task"].add_argument("--reason")
     args = parser.parse_args(argv)
     try:
         if args.command == "profile":
@@ -795,18 +904,54 @@ def main(argv=None):
             if errors:
                 raise Invalid("\n".join(errors))
             content = state_text(data, None if args.complete else args.task, "Ziel nachweislich abgeschlossen." if args.complete else args.next, args.complete)
-            path = args.project.resolve() / "STATE.md"
-            # Only this derived document is replaced; refuse a concurrently changed input.
-            if read(path) != data["STATE.md"] or read(args.project.resolve() / "PLAN.md") != data["PLAN.md"] or read(args.project.resolve() / "TRACKER.md") != data["TRACKER.md"]:
-                raise Invalid("CONCURRENT_CHANGE: Stand erneut lesen")
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=".workflow-state-", delete=False) as handle:
-                temporary = Path(handle.name)
-                handle.write(content)
-            try:
-                os.replace(temporary, path)
-            finally:
-                temporary.unlink(missing_ok=True)
+            write_document(data, "STATE.md", content)
             print("STATE_UPDATED: Referenzen und Dokumentstand aktualisiert.")
+            return 0
+        if args.command == "evidence":
+            if args.task not in data["Tasks"]:
+                raise Invalid(f"TASK: unbekannte Aufgabe {args.task}")
+            checks = split(args.checks)
+            if not checks or not set(checks) <= CHECKS:
+                raise Invalid("EVIDENCE_CHECKS: tatsächlich geprüfte Zielumgebungen benennen")
+            method = "ui" if set(checks) <= UI else checks[0] if len(set(checks)) == 1 else None
+            if not method:
+                raise Invalid("EVIDENCE_METHOD: UI-Ziele oder genau eines von inspection, unit, build")
+            if not meaningful(args.build):
+                raise Invalid("EVIDENCE_STAND: identifizierbaren Code-/Buildstand angeben")
+            row = {"ID": next_id(data["Evidence"], "E"), "Task": args.task, "Checks": ",".join(checks), "Method": method, "Mode": args.mode,
+                   "Date": datetime.now(timezone.utc).isoformat(timespec="seconds"), "Build": args.build, "Fingerprint": fingerprint(data, args.task),
+                   "Report": report_file(data["root"], args.report), "Result": args.result}
+            update_tracker(data, "Evidence", HEADERS["Evidence"], row)
+            print(f"EVIDENCE_RECORDED: {row['ID']} für {args.task}, {args.result}, Fingerprint {row['Fingerprint']}. Aufgabenzeile mit task nachführen, danach state.")
+            return 0
+        if args.command == "review":
+            if args.scope != "PLAN" and args.scope not in data["UseCases"]:
+                raise Invalid(f"REVIEW_SCOPE: PLAN oder Use-Case-ID erwartet, nicht {args.scope}")
+            row = {"ID": next_id(data["Reviews"], "RV"), "Scope": args.scope, "Kind": args.kind, "Result": args.result,
+                   "Fingerprint": fingerprint(data, args.scope), "Report": report_file(data["root"], args.report)}
+            update_tracker(data, "Reviews", HEADERS["Reviews"], row)
+            print(f"REVIEW_RECORDED: {row['ID']} {args.scope} {args.result} ({args.kind}), Fingerprint {row['Fingerprint']}. Danach state ausführen.")
+            return 0
+        if args.command == "release":
+            if "Releases" not in data:
+                raise Invalid("RELEASE_SCOPE: Auslieferungsnachweise benötigen einen Plan der Vorlage 1.1")
+            if args.delivery not in data["Delivery"]:
+                raise Invalid(f"DELIVERY: unbekanntes Auslieferungsziel {args.delivery}")
+            if not meaningful(args.build) or not meaningful(args.locator):
+                raise Invalid("RELEASE_RECORD: Build und konkreten Artefakt-/Release-Verweis angeben")
+            row = {"ID": next_id(data["Releases"], "L"), "Delivery": args.delivery, "Stage": args.stage, "Build": args.build, "Locator": args.locator, "Evidence": refs(args.evidence)}
+            update_tracker(data, "Releases", HEADERS["Releases"], row)
+            print(f"RELEASE_RECORDED: {row['ID']} {args.delivery} {args.stage}, Build {args.build}. Zugehörige Use-Case-Kritik nach diesem Eintrag erfassen, danach state ausführen.")
+            return 0
+        if args.command == "task":
+            if args.task not in data["Tasks"]:
+                raise Invalid(f"TASK: unbekannte Aufgabe {args.task}")
+            current = data["TrackTasks"].get(args.task, {})
+            row = {"ID": args.task, "Status": args.status or current.get("Status", "OFFEN"),
+                   "Evidence": refs(args.evidence) if args.evidence is not None else current.get("Evidence", "-"),
+                   "Reason": (args.reason or "-") if args.reason is not None else current.get("Reason", "-")}
+            update_tracker(data, "Tasks", HEADERS["TrackTasks"], row, replace=bool(current))
+            print(f"TASK_UPDATED: {args.task} {row['Status']}. Danach state --task <ID> --next '<Schritt>' und check ausführen.")
             return 0
         errors, warnings = validate(data, ready=getattr(args, "ready", False), complete=getattr(args, "complete", False), phase=getattr(args, "phase", None), release=getattr(args, "release", False))
         result = {"valid": not errors, "errors": errors, "warnings": warnings, "state": data["state"], "tasks": {key: row["Status"] for key, row in data["TrackTasks"].items()}}

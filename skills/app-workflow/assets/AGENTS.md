@@ -32,7 +32,7 @@
 
 Nach Änderungen am Plan oder Tracker `state --task <ID> --next <konkreter Schritt>` und danach `check` ausführen. Bei Übergabe oder geplanter Unterbrechung ebenfalls aktualisieren.
 
-Für aktuelle Prüfergebnisse `fingerprint --scope <Task-ID>` verwenden. Nachweise nennen Schritte, Erwartung, Beobachtung, Zeitpunkt, Code-/Buildstand und Einschränkungen. Die Aufgabe benennt in `Files` die betroffenen Quellen und relevanten Abhängigkeiten; damit erkennt der Prüfer Änderungen in diesem Umfang. Änderungen außerhalb dieses Umfangs auf Auswirkungen prüfen.
+Belege mit `evidence`, Kritik mit `review`, Auslieferungszustände mit `release` und Aufgabenstatus mit `task` eintragen; das Werkzeug bindet dabei den Fingerprint des geprüften Stands. Nachweise nennen Schritte, Erwartung, Beobachtung, Zeitpunkt, Code-/Buildstand und Einschränkungen. Die Aufgabe benennt in `Files` die betroffenen Quellen und relevanten Abhängigkeiten; damit erkennt der Prüfer Änderungen in diesem Umfang. Änderungen außerhalb dieses Umfangs auf Auswirkungen prüfen.
 
 Bei Release-Zielen unterscheidet der Tracker LOCAL, READY, SUBMITTED und LIVE. Ein Upload oder eine Einreichung belegt keine Verfügbarkeit für Nutzer. Die persönliche Präferenz für einen Anbieter ersetzt keine Autorisierung zu Veröffentlichung, Kontoerstellung oder Kosten. Bestehende konkrete Freigaben gelten weiter.
 

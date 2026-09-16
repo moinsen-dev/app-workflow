@@ -92,6 +92,10 @@ class WorkflowChecks(unittest.TestCase):
         errors = self.errors(**options)
         self.assertTrue(any(e.startswith(code + ":") for e in errors), errors)
 
+    def command(self, *args):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return wf.main([args[0], str(self.root), *args[1:]])
+
     def test_complete_synthetic_contract(self):
         self.assertEqual(self.errors(complete=True), [])
 
@@ -317,6 +321,79 @@ class WorkflowChecks(unittest.TestCase):
         row = {**d["Releases"]["L001"], "Locator": "synthetic://different-release"}
         set_table(self.root / "TRACKER.md", "Releases", wf.HEADERS["Releases"], [row])
         self.assert_error("PHASE_INCOMPLETE", release=True)
+
+    def test_evidence_command_binds_checked_state_and_changes_nothing_else(self):
+        (self.root / "second.md").write_text("Second synthetic observation; no app interaction is claimed.\n")
+        tracker = self.root / "TRACKER.md"
+        tracker.write_text(tracker.read_text() + "\nFreitext nach der letzten Tabelle bleibt erhalten.\n")
+        refresh_state(self.root)
+        before = {name: (self.root / name).read_text() for name in ("PLAN.md", "TRACKER.md", "STATE.md")}
+        self.assertEqual(self.command("evidence", "--task", "T001", "--checks", "macos", "--mode", "normal", "--build", "SYNTHETIC-ONLY", "--report", "second.md", "--result", "PASS"), 0)
+        data = wf.load(self.root)
+        row = data["Evidence"]["E002"]
+        self.assertEqual((row["Method"], row["Fingerprint"], row["Report"], row["Result"]), ("ui", wf.fingerprint(data, "T001"), "second.md", "PASS"))
+        after = tracker.read_text()
+        self.assertEqual([line for line in after.split("\n") if not line.startswith("| E002 |")], before["TRACKER.md"].split("\n"))
+        self.assertLess(after.index("| E002 |"), after.index("## Reviews"))
+        for name in ("PLAN.md", "STATE.md"):
+            self.assertEqual((self.root / name).read_text(), before[name])
+        self.assert_error("STATE_STALE")
+
+    def test_evidence_command_refuses_invalid_input_without_writing(self):
+        before = {p.name: p.read_bytes() for p in self.root.iterdir() if p.is_file()}
+        valid = ["--task", "T001", "--checks", "macos", "--mode", "normal", "--build", "SYNTHETIC-ONLY", "--report", "evidence.md", "--result", "PASS"]
+        for index, value in [(1, "T999"), (3, "macos,unit"), (7, "TODO"), (9, "missing.md")]:
+            with self.subTest(value=value):
+                args = list(valid)
+                args[index] = value
+                self.assertEqual(self.command("evidence", *args), 1)
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.root.iterdir() if p.is_file()})
+
+    def test_task_command_refuses_completion_without_current_evidence(self):
+        self.assertEqual(self.command("task", "T001", "--status", "IN_ARBEIT"), 0)
+        self.assertEqual(wf.load(self.root)["TrackTasks"]["T001"]["Status"], "IN_ARBEIT")
+        self.assert_error("STATE_STALE")
+        snapshot = (self.root / "TRACKER.md").read_bytes()
+        self.assertEqual(self.command("task", "T001", "--status", "ERLEDIGT", "--evidence", "-"), 1)
+        self.assertEqual((self.root / "TRACKER.md").read_bytes(), snapshot)
+        self.assertEqual(self.command("task", "T001", "--status", "ERLEDIGT", "--evidence", "E001"), 0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(wf.main(["state", str(self.root), "--task", "T001", "--next", "Synthetischen Vertrag erneut prüfen"]), 0)
+        self.assertEqual(self.errors(complete=True), [])
+
+    def test_task_command_adds_missing_tracker_row_for_a_planned_task(self):
+        data = wf.load(self.root)
+        extra = {**data["Tasks"]["T001"], "ID": "T002", "Accept": "Synthetische Zusatzprüfung", "Verify": "inspection", "Mode": "any", "Files": "-"}
+        set_table(self.root / "PLAN.md", "Tasks", wf.HEADERS["Tasks"], [data["Tasks"]["T001"], extra])
+        self.assert_error("TRACKER_COVERAGE", check_state=False)
+        self.assertEqual(self.command("task", "T002"), 0)
+        self.assertEqual(wf.load(self.root)["TrackTasks"]["T002"], {"ID": "T002", "Status": "OFFEN", "Evidence": "-", "Reason": "-"})
+        self.assertFalse(any(e.startswith("TRACKER_COVERAGE") for e in self.errors(check_state=False)))
+
+    def test_review_and_release_commands_bind_current_state_and_refuse_foreign_rows(self):
+        self.assertEqual(self.command("review", "--scope", "UC01", "--kind", "independent", "--result", "REWORK", "--report", "review.md"), 0)
+        data = wf.load(self.root)
+        self.assertEqual(data["Reviews"]["RV003"]["Fingerprint"], wf.fingerprint(data, "UC01"))
+        self.assertFalse(wf.review_passed(data, "UC01"))
+        self.assertEqual(self.command("review", "--scope", "UC99", "--kind", "self", "--result", "PASS", "--report", "review.md"), 1)
+        snapshot = (self.root / "TRACKER.md").read_bytes()
+        for args in (["--delivery", "D999", "--stage", "LOCAL", "--build", "SYNTHETIC-ONLY", "--locator", "synthetic://x", "--evidence", "E001"],
+                     ["--delivery", "D001", "--stage", "READY", "--build", "SYNTHETIC-ONLY", "--locator", "synthetic://x", "--evidence", "E001"]):
+            with self.subTest(args=args):
+                self.assertEqual(self.command("release", *args), 1)
+        self.assertEqual((self.root / "TRACKER.md").read_bytes(), snapshot)
+        self.assertEqual(self.command("release", "--delivery", "D001", "--stage", "LOCAL", "--build", "SYNTHETIC-ONLY", "--locator", "synthetic://second-run", "--evidence", "E001"), 0)
+        self.assertEqual(wf.load(self.root)["Releases"]["L002"]["Locator"], "synthetic://second-run")
+
+    def test_self_review_warning_applies_only_to_the_decisive_review(self):
+        d = wf.load(self.root)
+        rows = list(d["Reviews"].values())
+        rows[0]["Kind"] = "self"
+        set_table(self.root / "TRACKER.md", "Reviews", wf.HEADERS["Reviews"], rows)
+        refresh_state(self.root)
+        self.assertTrue(any(w.startswith("SELF_REVIEW: RV001") for w in wf.validate(wf.load(self.root))[1]))
+        self.assertEqual(self.command("review", "--scope", "PLAN", "--kind", "independent", "--result", "PASS", "--report", "review.md"), 0)
+        self.assertFalse(any(w.startswith("SELF_REVIEW") for w in wf.validate(wf.load(self.root), check_state=False)[1]))
 
     def test_legacy_contract_keeps_its_recorded_fingerprints(self):
         root = Path(__file__).resolve().parent / "fixtures" / "legacy-v1"

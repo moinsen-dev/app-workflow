@@ -61,7 +61,7 @@ Das genaue lesbare Format steht in [Markdown-Vertrag](references/format.md). Sta
 
 Einen Kritiker mit Nutzerauftrag, Plan, relevantem Katalog und aktuellen Einschränkungen prüfen lassen. Bei verfügbarer und erlaubter Delegation einen unabhängigen Agenten einsetzen. Andernfalls als Selbstprüfung erfassen und die fehlende Unabhängigkeit transparent halten. Kein unabhängiges Urteil erfinden.
 
-Der Kritiker benennt konkrete fehlende Anforderungen, ungedeckte Katalogpunkte, unbrauchbare Reihenfolge oder nicht überprüfbare Kriterien. Ergebnis als Review für `PLAN` samt Bericht und aktuellem Fingerprint erfassen. Autorisierte Korrekturen vornehmen; Umfangsänderungen aus Kritik nicht automatisch zu Nutzerentscheidungen machen.
+Der Kritiker benennt konkrete fehlende Anforderungen, ungedeckte Katalogpunkte, unbrauchbare Reihenfolge oder nicht überprüfbare Kriterien. Ergebnis mit `review --scope PLAN` samt Bericht erfassen; der Befehl bindet den aktuellen Plan-Fingerprint. Autorisierte Korrekturen vornehmen; Umfangsänderungen aus Kritik nicht automatisch zu Nutzerentscheidungen machen.
 
 Danach State aktualisieren und `check --ready` ausführen. Offene Umsetzungsaufgaben sind dabei normal; fehlende Planung und offene Einordnungen müssen geklärt werden. Eine benötigte Gerätefreigabe lässt sich als blockierte Aufgabe planen und hindert unabhängige Arbeit nicht.
 
@@ -70,11 +70,11 @@ Danach State aktualisieren und `check --ready` ausführen. Offene Umsetzungsaufg
 1. State und tatsächlichen Projektstand abgleichen. Den nächsten ausführbaren Task anhand Phase und Abhängigkeiten auswählen.
 2. Aktiven Task festhalten und einen zusammenhängenden Teil des Nutzerablaufs implementieren. Bestehende fremde Änderungen schützen.
 3. Im passenden Browser, Android-Gerät, iOS-Simulator/-Gerät oder der nativen Mac-App bedienen. Erwartetes Ergebnis tatsächlich beobachten. Lokale Unit-/Integrationsprüfungen gezielt für fehleranfällige Logik, wiederkehrende Fehler oder notwendige Grenzen einsetzen; sinnvolle bestehende Checks berücksichtigen.
-4. In `Files` die für das geprüfte Verhalten maßgeblichen Quellen und Abhängigkeiten benennen. Das Werkzeug bildet daraus und aus den Kriterien einen Fingerprint. Erst nach der Prüfung einen Beleg für genau diesen Stand erfassen. Bericht: Ausgangslage, Schritte, Erwartung, tatsächliche Beobachtung, Umgebung, Modus, Zeitpunkt, Build und verbleibende Grenzen.
-5. Vollständigen Use Case durch den Kritiker anhand Auftrag, aktuellem Code und Belegen bewerten lassen. Urteil `PASS`, `REWORK` oder `BLOCKED` mit konkreten Befunden erfassen. Betroffene Korrekturen und Prüfungen ausführen.
-6. Tracker, dann State aktualisieren und `check` ausführen. Vor dem Phasenwechsel zusätzlich `check --phase <ID>` verwenden. Innerhalb des vereinbarten Goals weiterarbeiten.
+4. In `Files` die für das geprüfte Verhalten maßgeblichen Quellen und Abhängigkeiten benennen. Das Werkzeug bildet daraus und aus den Kriterien einen Fingerprint. Erst nach der Prüfung den Bericht schreiben und den Beleg mit `evidence` erfassen; der Befehl bindet den Fingerprint des geprüften Stands und fügt die Zeile ein. Bericht: Ausgangslage, Schritte, Erwartung, tatsächliche Beobachtung, Umgebung, Modus, Zeitpunkt, Build und verbleibende Grenzen.
+5. Vollständigen Use Case durch den Kritiker anhand Auftrag, aktuellem Code und Belegen bewerten lassen. Urteil `PASS`, `REWORK` oder `BLOCKED` mit konkreten Befunden im Bericht und per `review` erfassen. Betroffene Korrekturen und Prüfungen ausführen.
+6. Aufgabenstatus mit `task` setzen, dann State aktualisieren und `check` ausführen. Vor dem Phasenwechsel zusätzlich `check --phase <ID>` verwenden. Innerhalb des vereinbarten Goals weiterarbeiten.
 
-Bei Auslieferung den tatsächlich erreichten Zustand in TRACKER/Releases erfassen: LOCAL, READY, SUBMITTED oder LIVE, zusammen mit Build, konkretem Artefakt-/Release-Verweis und aktuellen Evidence-IDs mit identischer Build-Kennung. Kriterien nach dem beauftragten Goal auslegen: READY endet mit geprüftem Paket und vorbereiteten Unterlagen; Store-Einreichung und Nutzerverfügbarkeit gehören zu SUBMITTED beziehungsweise LIVE. Ein Transport-/Upload-Erfolg wird nicht zu LIVE umgedeutet. Für LIVE den normalen Nutzerstart des ausgelieferten Builds belegen; auf iOS gehört dafür ios-device zu den Prüfzielen und zu einer Delivery-Aufgabe. Benötigte Konto-, Geräte- oder Review-Handgriffe im betroffenen Task festhalten; bereits erteilte Freigaben gelten weiter.
+Bei Auslieferung den tatsächlich erreichten Zustand mit `release` in TRACKER/Releases erfassen: LOCAL, READY, SUBMITTED oder LIVE, zusammen mit Build, konkretem Artefakt-/Release-Verweis und aktuellen Evidence-IDs mit identischer Build-Kennung. Die Release-Zeile geht in den Fingerprint des zugehörigen Use Case ein; dessen Kritik daher nach dem Release-Eintrag erfassen. Kriterien nach dem beauftragten Goal auslegen: READY endet mit geprüftem Paket und vorbereiteten Unterlagen; Store-Einreichung und Nutzerverfügbarkeit gehören zu SUBMITTED beziehungsweise LIVE. Ein Transport-/Upload-Erfolg wird nicht zu LIVE umgedeutet. Für LIVE den normalen Nutzerstart des ausgelieferten Builds belegen; auf iOS gehört dafür ios-device zu den Prüfzielen und zu einer Delivery-Aufgabe. Benötigte Konto-, Geräte- oder Review-Handgriffe im betroffenen Task festhalten; bereits erteilte Freigaben gelten weiter.
 
 Kritik findet am vollständigen Use Case oder Phasenabschluss statt; kleine Zwischentasks brauchen nicht jeweils einen separaten Kritiker. Die Phase schließt erst nach ihrer erforderlichen Kritik. Bei Wiederholungen ohne neue Erkenntnis Ursache und Ansatz neu prüfen. Unabhängige Arbeit fortsetzen; notwendige externe Handgriffe konkret festhalten.
 
@@ -97,6 +97,10 @@ python3 "$SKILL_DIR/scripts/workflow.py" catalog --profile ios
 python3 "$SKILL_DIR/scripts/workflow.py" check /projekt --ready
 python3 "$SKILL_DIR/scripts/workflow.py" fingerprint /projekt --scope T002
 python3 "$SKILL_DIR/scripts/workflow.py" fingerprint /projekt --scope UC02
+python3 "$SKILL_DIR/scripts/workflow.py" evidence /projekt --task T002 --checks ios-simulator --mode normal --build a1b2c3d --report docs/t002-evidence.md --result PASS
+python3 "$SKILL_DIR/scripts/workflow.py" task /projekt T002 --status ERLEDIGT --evidence E003
+python3 "$SKILL_DIR/scripts/workflow.py" review /projekt --scope UC02 --kind independent --result PASS --report docs/uc02-review.md
+python3 "$SKILL_DIR/scripts/workflow.py" release /projekt --delivery D001 --stage LOCAL --build a1b2c3d --locator .artifacts/App.app --evidence E003
 python3 "$SKILL_DIR/scripts/workflow.py" state /projekt --task T002 --next 'Eintrag speichern und nach Neustart wieder öffnen'
 python3 "$SKILL_DIR/scripts/workflow.py" status /projekt
 python3 "$SKILL_DIR/scripts/workflow.py" check /projekt --phase P03
@@ -104,6 +108,6 @@ python3 "$SKILL_DIR/scripts/workflow.py" check /projekt --complete
 python3 "$SKILL_DIR/scripts/workflow.py" check /projekt --release
 ```
 
-`check`, `status`, `catalog` und `fingerprint` sind lesend. `init` erzeugt neue Dateien; `state` aktualisiert ausschließlich die abgeleitete STATE-Datei. Details und Grenzen stehen im Markdown-Vertrag. Verwende den Code des geladenen Skills; kopiere keinen zweiten Controller in jede App.
+`check`, `status`, `catalog` und `fingerprint` sind lesend. `init` erzeugt neue Dateien. `evidence`, `review` und `release` fügen genau eine Zeile in TRACKER.md ein, `task` legt eine Aufgabenzeile an oder ändert sie; jeder dieser Befehle verweigert eine Zeile, der der Prüfer einen Fehler zuordnet, etwa eine Fertigmeldung ohne aktuellen Beleg. `state` aktualisiert ausschließlich die abgeleitete STATE-Datei. Details und Grenzen stehen im Markdown-Vertrag. Verwende den Code des geladenen Skills; kopiere keinen zweiten Controller in jede App.
 
 Version 1.1 liest frühere 1.0-Pläne weiterhin mit ausdrücklichem Legacy-Hinweis. Bei beauftragter Übernahme der Ergänzung die [Versionsübernahme](references/format.md#versionsübernahme-10-auf-11) vollständig durchführen; nicht nur die Versionsnummer ändern oder historische Beleg-Fingerprints neu schreiben.
